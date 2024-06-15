@@ -154,6 +154,21 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Ignore data files
+data/raw/*
+data/processed/*
+
+# Ignore model files
+models/*
+
+# Keep README files in data and models directories
+!data/raw/README.md
+!data/processed/README.md
+!models/README.md
+
+# Sensitive environment variables to store API keys
+.env
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

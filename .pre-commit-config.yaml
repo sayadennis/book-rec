@@ -11,6 +11,7 @@ repos:
         entry: pylint
         language: system
         types: [python]
+        args: [--disable=dangerous-default-value]
 
       - id: mypy
         name: mypy
@@ -23,6 +24,7 @@ repos:
         entry: flake8
         language: system
         types: [python]
+        args: [--max-line-length=88]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
