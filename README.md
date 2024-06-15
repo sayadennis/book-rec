@@ -1,2 +1,3 @@
-# book-rec
-Sandbox for a book recommendation system
+# Book Recommendation System
+
+Building a book recommendation system
