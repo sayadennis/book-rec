@@ -75,6 +75,7 @@ def fetch_bestsellers(date: str, category: str) -> pd.DataFrame:
     endpoint = f"{BOOKS_BASE_URL}/lists/{date}/{category}.json"
     params = {"api-key": API_KEY}
     response = requests.get(endpoint, params=params, timeout=30)
+    time.sleep(12)  # Sleep for 12 seconds between requests
     response.raise_for_status()
     data = response.json()
     data_df = pd.DataFrame.from_dict(data["results"]["books"])[KEEP_FEATURES]
@@ -95,6 +96,7 @@ def get_book_review_url_by_isbn13(
     urls = []
     try:
         response = requests.get(endpoint, params=params, timeout=30)
+        time.sleep(12)
         response.raise_for_status()
         response_json = response.json()
         if "status" in response_json and response_json["status"] == "OK":
@@ -121,14 +123,28 @@ def get_review_content_by_url(url: str) -> Dict[str, str]:
     Save the abstract, lead paragraph, and headline into a dictionary.
     """
     # Use the Articles API to fetch the article content
-    endpoint = f"{ARTICLES_BASE_URL}/articlesearch.json"
-    params = {"fq": f'web_url:("{url}")', "api-key": API_KEY}
-    response = requests.get(endpoint, params=params, timeout=30)
-    response_json = response.json()
     results = {}
-    results["abstract"] = response_json["response"]["docs"][0]["abstract"]
-    results["lead_paragraph"] = response_json["response"]["docs"][0]["lead_paragraph"]
-    results["headline"] = response_json["response"]["docs"][0]["headline"]["main"]
+    try:
+        # Use the Articles API to fetch the article content
+        endpoint = f"{ARTICLES_BASE_URL}/articlesearch.json"
+        params = {"fq": f'web_url:("{url}")', "api-key": API_KEY}
+        response = requests.get(endpoint, params=params, timeout=30)
+        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+        response_json = response.json()
+        if "status" in response_json and response_json["status"] == "OK":
+            docs = response_json.get("response", {}).get("docs", [])
+            if docs:
+                doc = docs[0]
+                results["abstract"] = doc.get("abstract", "")
+                results["lead_paragraph"] = doc.get("lead_paragraph", "")
+                results["headline"] = doc.get("headline", {}).get("main", "")
+    except requests.exceptions.RequestException as e:
+        # Handle any request-related errors
+        print(f"Request failed: {e}")
+    except ValueError as e:
+        # Handle JSON decoding errors
+        print(f"JSON decoding failed: {e}")
+    time.sleep(12)  # Sleep for 12 seconds between requests
     return results
 
 
@@ -139,10 +155,8 @@ def fetch_and_process_data(
     Fetch and process data for a given date and category.
     """
     data_df = fetch_bestsellers(date, category)
-    data_df = update_review_contents(data_df)
     total_requests += 1
     logger.info("Fetched data for %s - %s (rows %d)", date, category, data_df.shape[0])
-    time.sleep(12)  # Sleep for 12 seconds between requests
     return data_df, total_requests
 
 
@@ -183,7 +197,28 @@ def gather_bestseller_data(
                     "Error fetching data for %s and category %s: %s", date, category, e
                 )
 
-    return pd.concat(all_dataframes, ignore_index=True)
+    all_data = pd.concat(all_dataframes, ignore_index=True)
+    all_data["bestseller_date"] = pd.to_datetime(all_data["bestseller_date"])
+    all_data.drop(columns=["category"], errors="ignore", inplace=True)
+
+    # Group by `primary_isbn13` and aggregate
+    agg_data = (
+        all_data.groupby("primary_isbn13")
+        .agg(
+            best_rank=("rank", "min"),
+            max_weeks_on_list=("weeks_on_list", "max"),
+            publisher=("publisher", "first"),
+            description=("description", "first"),
+            title=("title", "first"),
+            author=("author", "first"),  # Assuming author is the same for the same book
+            latest_bestseller_date=("bestseller_date", "max"),
+        )
+        .reset_index()
+    )
+    # Add review info
+    agg_data = update_review_contents(agg_data)
+
+    return agg_data
 
 
 # Test getting ISBNs of all
