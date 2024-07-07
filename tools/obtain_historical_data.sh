@@ -5,7 +5,7 @@
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --mem=1G
-#SBATCH --job-name=2023
+#SBATCH --job-name=bs_data
 #SBATCH --mail-user=sayarenedennis@northwestern.edu
 #SBATCH --mail-type=END,FAIL
 #SBATCH --output=/projects/p30791/out/obtain_historical_data.out

@@ -4,6 +4,7 @@ import os
 import time
 from typing import Dict, List, Tuple
 
+import numpy as np
 import pandas as pd
 import requests
 from dotenv import load_dotenv
@@ -174,6 +175,11 @@ def update_review_contents(data_df: pd.DataFrame) -> pd.DataFrame:
     return data_df
 
 
+# Custom function to get the first non-NaN value
+def first_non_nan(series: pd.Series) -> pd.Series:
+    return series.dropna().iloc[0] if not series.dropna().empty else np.nan
+
+
 # Main function to gather bestseller data for all categories and dates
 def gather_bestseller_data(
     categories: List[str], start_date: str, end_date: str
@@ -197,6 +203,8 @@ def gather_bestseller_data(
                     "Error fetching data for %s and category %s: %s", date, category, e
                 )
 
+    print(f"Total requests made: {total_requests}")
+
     all_data = pd.concat(all_dataframes, ignore_index=True)
     all_data["bestseller_date"] = pd.to_datetime(all_data["bestseller_date"])
     all_data.drop(columns=["category"], errors="ignore", inplace=True)
@@ -207,10 +215,13 @@ def gather_bestseller_data(
         .agg(
             best_rank=("rank", "min"),
             max_weeks_on_list=("weeks_on_list", "max"),
-            publisher=("publisher", "first"),
-            description=("description", "first"),
-            title=("title", "first"),
-            author=("author", "first"),  # Assuming author is the same for the same book
+            publisher=("publisher", first_non_nan),
+            description=("description", first_non_nan),
+            title=("title", first_non_nan),
+            author=(
+                "author",
+                first_non_nan,
+            ),  # Assuming author is the same for the same book
             latest_bestseller_date=("bestseller_date", "max"),
         )
         .reset_index()
@@ -221,11 +232,26 @@ def gather_bestseller_data(
     return agg_data
 
 
-# Test getting ISBNs of all
-bestseller_df = gather_bestseller_data(CATEGORIES, "2023-01-01", "2023-01-02")
-
+# Get directories for data and params
 current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
 data_dir = os.path.join(repo_root, "data", "raw")
 
-bestseller_df.to_csv(f"{data_dir}/bestsellers_2023.csv")
+# Create raw data directory if it doesn't exist
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
+# Get today's parameters
+acquisition_dates = pd.read_csv(f"{current_dir}/acquisition_dates.csv")
+today = datetime.datetime.today().strftime("%Y-%m-%d")
+
+params = acquisition_dates[acquisition_dates["acquisition_date"] == today]
+
+if params.shape[0] == 0:
+    print("No match for acquisition date.")
+else:
+    start_date = params["start_date"][0]
+    end_date = params["end_date"][0]
+    # Get data and save
+    bestseller_df = gather_bestseller_data(CATEGORIES, start_date, end_date)
+    bestseller_df.to_csv(f"{data_dir}/bestsellers-{start_date}-to-{end_date}.csv")
