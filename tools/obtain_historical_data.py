@@ -2,7 +2,7 @@ import datetime
 import logging
 import os
 import time
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -37,11 +37,6 @@ KEEP_FEATURES = [
     "description",
     "title",
     "author",
-    # 'rank_last_week',
-    # 'book_review_link',
-    # 'first_chapter_link',
-    # 'sunday_review_link',
-    # 'article_chapter_link',
 ]
 
 if not API_KEY:
@@ -85,70 +80,6 @@ def fetch_bestsellers(date: str, category: str) -> pd.DataFrame:
     return data_df
 
 
-def get_book_review_url_by_isbn13(
-    isbn13: str = "9780593597033",
-) -> List[str]:
-    """
-    Get the set of review URLs by ISBN-13.
-    If no review is present, return empty set.
-    """
-    endpoint = f"{BOOKS_BASE_URL}/reviews.json"
-    params = {"isbn": isbn13, "api-key": API_KEY}
-    urls = []
-    try:
-        response = requests.get(endpoint, params=params, timeout=30)
-        time.sleep(12)
-        response.raise_for_status()
-        response_json = response.json()
-        if "status" in response_json and response_json["status"] == "OK":
-            if response_json.get("num_results", 0) > 0:
-                for result in response_json["results"]:
-                    urls.append(result.get("url", ""))
-            else:
-                logger.info("No results found for ISBN: %s", isbn13)
-        else:
-            logger.warning("Unexpected response format or error: %s", response_json)
-    except requests.exceptions.RequestException as e:
-        logger.error("Request failed: %s", e)
-    # response = requests.get(endpoint, params=params, timeout=30)
-    # response = response.json()
-    # if (response["status"]=="OK") and (response["num_results"] > 0):
-    #     for i in range(response["num_results"]):
-    #         urls.append(response["results"][i]["url"])
-    return list(set(urls))
-
-
-def get_review_content_by_url(url: str) -> Dict[str, str]:
-    """
-    Get the content of a review article by its URL.
-    Save the abstract, lead paragraph, and headline into a dictionary.
-    """
-    # Use the Articles API to fetch the article content
-    results = {}
-    try:
-        # Use the Articles API to fetch the article content
-        endpoint = f"{ARTICLES_BASE_URL}/articlesearch.json"
-        params = {"fq": f'web_url:("{url}")', "api-key": API_KEY}
-        response = requests.get(endpoint, params=params, timeout=30)
-        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
-        response_json = response.json()
-        if "status" in response_json and response_json["status"] == "OK":
-            docs = response_json.get("response", {}).get("docs", [])
-            if docs:
-                doc = docs[0]
-                results["abstract"] = doc.get("abstract", "")
-                results["lead_paragraph"] = doc.get("lead_paragraph", "")
-                results["headline"] = doc.get("headline", {}).get("main", "")
-    except requests.exceptions.RequestException as e:
-        # Handle any request-related errors
-        print(f"Request failed: {e}")
-    except ValueError as e:
-        # Handle JSON decoding errors
-        print(f"JSON decoding failed: {e}")
-    time.sleep(12)  # Sleep for 12 seconds between requests
-    return results
-
-
 def fetch_and_process_data(
     date: str, category: str, total_requests: int
 ) -> Tuple[pd.DataFrame, int]:
@@ -159,20 +90,6 @@ def fetch_and_process_data(
     total_requests += 1
     logger.info("Fetched data for %s - %s (rows %d)", date, category, data_df.shape[0])
     return data_df, total_requests
-
-
-def update_review_contents(data_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Update the DataFrame with review contents for each book.
-    """
-    for i in data_df.index:
-        urls = get_book_review_url_by_isbn13(data_df.loc[i, "primary_isbn13"])
-        if urls:
-            url = urls[0]
-            review_contents = get_review_content_by_url(url)
-            for feature_name in ["abstract", "lead_paragraph", "headline"]:
-                data_df.at[i, feature_name] = review_contents.get(feature_name, "")
-    return data_df
 
 
 # Custom function to get the first non-NaN value
@@ -226,8 +143,6 @@ def gather_bestseller_data(
         )
         .reset_index()
     )
-    # Add review info
-    agg_data = update_review_contents(agg_data)
 
     return agg_data
 
@@ -250,8 +165,8 @@ params = acquisition_dates[acquisition_dates["acquisition_date"] == today]
 if params.shape[0] == 0:
     print("No match for acquisition date.")
 else:
-    start_date = params["start_date"][0]
-    end_date = params["end_date"][0]
+    start_date = params["start_date"].item()
+    end_date = params["end_date"].item()
     # Get data and save
     bestseller_df = gather_bestseller_data(CATEGORIES, start_date, end_date)
     bestseller_df.to_csv(f"{data_dir}/bestsellers-{start_date}-to-{end_date}.csv")
