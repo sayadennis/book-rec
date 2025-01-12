@@ -2,7 +2,7 @@ import datetime
 import logging
 import os
 import time
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Load API key
 load_dotenv()
-API_KEY = os.getenv("NYT_API_KEY")
+NYT_API_KEY = os.getenv("NYT_API_KEY")
 BOOKS_BASE_URL = os.getenv("BOOKS_BASE_URL")
 ARTICLES_BASE_URL = os.getenv("ARTICLES_BASE_URL")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 CATEGORIES = [
     "Combined Print and E-Book Fiction",
@@ -39,8 +40,11 @@ KEEP_FEATURES = [
     "author",
 ]
 
-if not API_KEY:
+if not NYT_API_KEY:
     raise ValueError("No API key found. Please set NYT_API_KEY in the .env file.")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("No API key found. Please set GOOGLE_API_KEY in the .env file.")
 
 if not BOOKS_BASE_URL:
     raise ValueError("No base URL found. Please set BOOKS_BASE_URL in the .env file.")
@@ -69,7 +73,7 @@ def get_sundays(start_date: str, end_date: str) -> List[str]:
 # Function to fetch bestseller data for a given date and category
 def fetch_bestsellers(date: str, category: str) -> pd.DataFrame:
     endpoint = f"{BOOKS_BASE_URL}/lists/{date}/{category}.json"
-    params = {"api-key": API_KEY}
+    params = {"api-key": NYT_API_KEY}
     response = requests.get(endpoint, params=params, timeout=30)
     time.sleep(12)  # Sleep for 12 seconds between requests
     response.raise_for_status()
@@ -95,6 +99,50 @@ def fetch_and_process_data(
 # Custom function to get the first non-NaN value
 def first_non_nan(series: pd.Series) -> pd.Series:
     return series.dropna().iloc[0] if not series.dropna().empty else np.nan
+
+
+def fetch_google_book_info(isbn: str, api_key: str | None) -> Dict:
+    """
+    Fetch book information from Google Books API using the given ISBN.
+    This is to get the detailed book description that NYT does not have.
+
+    Args:
+        isbn (str): The ISBN of the book to search for.
+        api_key (str): Your Google Books API key.
+
+    Returns:
+        dict: dictionary containing the book details, or error if no info found.
+    """
+    # Construct the API URL
+    url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}&key={api_key}"
+
+    # Make the API request
+    try:
+        response = requests.get(url, timeout=10)  # Timeout set to 10 seconds
+    except requests.exceptions.Timeout:
+        return {"error": "Request timed out"}
+    except requests.exceptions.RequestException as e:
+        return {"error": f"An error occurred: {e}"}
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        data = response.json()
+        # Check if books are found
+        if "items" in data:  # pylint: disable=no-else-return
+            book_info = {
+                "ISBN": isbn,
+                "Published Date": data["items"][0]["volumeInfo"].get(
+                    "publishedDate", "N/A"
+                ),
+                "Description": data["items"][0]["volumeInfo"].get("description", "N/A"),
+            }
+            return book_info
+        else:
+            return {"error": f"No books found for ISBN {isbn}."}
+    else:
+        return {
+            "error": f"Failed to fetch data. HTTP Status Code: {response.status_code}"
+        }
 
 
 # Main function to gather bestseller data for all categories and dates
@@ -144,29 +192,42 @@ def gather_bestseller_data(
         .reset_index()
     )
 
+    # Get book descriptions from Google Books API
+    for i in agg_data.index:
+        google_book_info = fetch_google_book_info(
+            agg_data.loc[i, "primary_isbn13"], api_key=GOOGLE_API_KEY
+        )
+        if (
+            "Description"
+            in google_book_info.keys()  # pylint: disable=consider-iterating-dictionary
+        ):
+            agg_data.loc[i, "google_description"] = google_book_info["Description"]
+            agg_data.loc[i, "publication_date"] = google_book_info["Published Date"]
+
     return agg_data
 
 
-# Get directories for data and params
-current_dir = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.abspath(os.path.join(current_dir, ".."))
-data_dir = os.path.join(repo_root, "data", "raw")
+if __name__ == "__main__":
+    # Get directories for data and params
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+    data_dir = os.path.join(repo_root, "data", "raw")
 
-# Create raw data directory if it doesn't exist
-if not os.path.exists(data_dir):
-    os.makedirs(data_dir)
+    # Create raw data directory if it doesn't exist
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
 
-# Get today's parameters
-acquisition_dates = pd.read_csv(f"{current_dir}/acquisition_dates.csv")
-today = datetime.datetime.today().strftime("%Y-%m-%d")
+    # Get today's parameters
+    acquisition_dates = pd.read_csv(f"{current_dir}/acquisition_dates.csv")
+    today = datetime.datetime.today().strftime("%Y-%m-%d")
 
-params = acquisition_dates[acquisition_dates["acquisition_date"] == today]
+    params = acquisition_dates[acquisition_dates["acquisition_date"] == today]
 
-if params.shape[0] == 0:
-    print("No match for acquisition date.")
-else:
-    start_date = params["start_date"].item()
-    end_date = params["end_date"].item()
-    # Get data and save
-    bestseller_df = gather_bestseller_data(CATEGORIES, start_date, end_date)
-    bestseller_df.to_csv(f"{data_dir}/bestsellers-{start_date}-to-{end_date}.csv")
+    if params.shape[0] == 0:
+        print("No match for acquisition date.")
+    else:
+        start_date = params["start_date"].item()
+        end_date = params["end_date"].item()
+        # Get data and save
+        bestseller_df = gather_bestseller_data(CATEGORIES, start_date, end_date)
+        bestseller_df.to_csv(f"{data_dir}/bestsellers-{start_date}-to-{end_date}.csv")

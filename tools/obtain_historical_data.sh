@@ -10,8 +10,7 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --output=/projects/p30791/out/obtain_historical_data.out
 
-module purge all
-module load python-miniconda3/4.12.0
+export PATH="/software/miniconda3/4.12.0/bin:$PATH"
 source activate book-rec
 
 cd /projects/p30791/book-rec/
