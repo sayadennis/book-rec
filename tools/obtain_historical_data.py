@@ -172,7 +172,17 @@ def gather_bestseller_data(
 
     all_data = pd.concat(all_dataframes, ignore_index=True)
     all_data["bestseller_date"] = pd.to_datetime(all_data["bestseller_date"])
-    all_data.drop(columns=["category"], errors="ignore", inplace=True)
+    all_data["category"] = all_data["category"].map(
+        {
+            "Combined Print and E-Book Fiction": "Fiction",
+            "Combined Print and E-Book Nonfiction": "Fiction",
+            "Hardcover Fiction": "Fiction",
+            "Hardcover Nonfiction": "Nonfiction",
+            "Trade Fiction Paperback": "Fiction",
+            "Paperback Nonfiction": "Nonfiction",
+            "Advice How-To and Miscellaneous": "Advice How-To and Misc",
+        }
+    )
 
     # Group by `primary_isbn13` and aggregate
     agg_data = (
@@ -181,6 +191,7 @@ def gather_bestseller_data(
             best_rank=("rank", "min"),
             max_weeks_on_list=("weeks_on_list", "max"),
             publisher=("publisher", first_non_nan),
+            category=("category", first_non_nan),
             description=("description", first_non_nan),
             title=("title", first_non_nan),
             author=(

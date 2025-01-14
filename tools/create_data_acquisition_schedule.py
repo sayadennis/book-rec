@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 # Define the start and end dates
-earliest_date = datetime(2010, 1, 1)
+earliest_date = datetime(2015, 1, 1)
 latest_date = datetime(2024, 12, 31)
 
 # Initialize an empty list to store the periods
@@ -24,7 +24,7 @@ while current_date <= latest_date:
 df = pd.DataFrame(periods)
 
 # Define acquisition dates
-acquisition_start_date = datetime(2025, 1, 13)
+acquisition_start_date = datetime(2025, 1, 15)
 
 acquisition_dates = [acquisition_start_date + timedelta(days=i) for i in range(len(df))]
 df["acquisition_date"] = acquisition_dates
